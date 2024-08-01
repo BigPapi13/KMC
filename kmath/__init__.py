@@ -5,9 +5,9 @@ def beet_default(ctx: Context):
     ctx.require(
         load(
             data_pack={
-                "data/kmc.item/modules": "@kmc.item/modules"
+                "data/kmath/modules": "@kmc.kmath/modules",
             },
         )
     )
 
-    ctx.require("beet.contrib.model_merging")
+    ctx.require("bolt_expressions")

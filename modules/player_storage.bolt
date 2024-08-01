@@ -1,0 +1,43 @@
+# Utilities for player storage
+
+import kmc:id as kmc_id
+from kmc:utils import load_function
+from bolt_expressions import Data, Scoreboard
+
+#> API
+
+#> Output: kmc:io player
+def ps_read():
+    function ./api/player_storage/read
+
+#> Input: kmc:io player
+def ps_write():
+    function ./api/player_storage/write
+
+#> Publicly accessible storage objective
+ps_storage = Data.storage("kmc:io").player
+
+
+# Run as the player you want to get the entry of
+#> Output: kmc:io player
+function ./api/player_storage/read:
+    # If the last access was this player, do not do anything
+    execute unless score #last_access kmc.id = @s kmc.id:
+        execute store result storage kmc:macro id int 1 run scoreboard players get @s kmc.id
+        with storage kmc:macro:
+            $data modify storage kmc:io player set from storage kmc:storage players[{id:$(id)}]
+
+        scoreboard players operation #last_access kmc.id = @s kmc.id
+
+function ./api/player_storage/write:
+    # Note: By definition, kmc:macro id shouldn't be altered since the last read, so no modification is necessary
+    with storage kmc:macro:
+        $data modify storage kmc:storage players[{id:$(id)}] set from storage kmc:io player
+
+with load_function("player_storage"):
+    execute unless data storage kmc:storage players run data modify storage kmc:storage players set value []
+
+append function ./int/player_setup:
+    data modify storage kmc:temp player_data set value {}
+    execute store result storage kmc:temp player_data.id int 1 run scoreboard players get @s kmc.id
+    data modify storage kmc:storage players append from storage kmc:temp player_data

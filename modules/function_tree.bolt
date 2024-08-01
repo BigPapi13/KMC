@@ -1,0 +1,33 @@
+#> kmc:function_tree
+
+from bolt_expressions import Scoreboard
+
+# Generates a binary function tree from a given list of commands
+def generate_function_tree(command_list, player, objective):
+    max_index = len(command_list) - 1
+    
+    generate_branch(0, max_index, command_list, player, objective)
+
+
+def generate_branch(min, max, command_list, player, objective):
+    score = Scoreboard(objective)
+
+    print(min, max)
+    if min == max:
+        command = command_list[min]
+        raw f"{command}"
+        return
+
+    # Branch 1
+    b1_min = min
+    b1_max = (int) (min + (max - min) / 2)
+
+    if score var score[player] matches f"{b1_min}..{b1_max}":
+        generate_branch(b1_min, b1_max, command_list, player, objective)
+
+    # Branch 2
+    b2_min = b1_max + 1
+    b2_max = max
+
+    if score var score[player] matches f"{b2_min}..{b2_max}":
+        generate_branch(b2_min, b2_max, command_list, player, objective)

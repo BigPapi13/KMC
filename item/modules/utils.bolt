@@ -1,0 +1,14 @@
+
+# Parses a namespaced name into its namespace and name, returned as a dictionary
+def parse_name(name):
+    # Find colon
+    colon_index = name.find(':')
+
+    parsed_name = {}
+    if colon_index == -1:
+        parsed_name.update({"namespace":"minecraft"})
+    else:
+        parsed_name.update({"namespace":name[:colon_index]})
+
+    parsed_name.update({"name":name[colon_index + 1:]})
+    return parsed_name

@@ -1,0 +1,9 @@
+# Sets up a universal item display for technical uses
+#   Import this using "from kmc:display_entity import display" to have access to a constant that represents the UUID
+from kmc:forceload import on_load_origin
+
+
+display = "75b73c9e-10c7-4756-83e4-a5c67cdbf496"
+
+with on_load_origin("display_entity"):
+    execute unless entity display run summon item_display 0.0 0.0 0.0 {Tags:["kmc.utility","global.ignore","smithed.strict"], UUID: [I; 1974942878, 281495382, -2082167354, 2094789782]}

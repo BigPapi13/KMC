@@ -1,0 +1,11 @@
+# Sets up scoreboards and such
+
+append function_tag minecraft:load {
+    "values": [
+        "kmc.item:int/load"
+    ]
+}
+
+append function kmc.item:int/load:
+    scoreboard objectives add kmc dummy
+    scoreboard objectives add kmc.const dummy

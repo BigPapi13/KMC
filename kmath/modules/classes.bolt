@@ -1,0 +1,316 @@
+import ./setup as setup
+from bolt_expressions import Scoreboard, Data
+from ./functions import sqrt
+
+## TO-DO ##
+#   - Create entity and block equivalents of DataVec
+#   - Switch to supersword's method of magnitude calc (works better for large inputs) https://github.com/SuperSwordTW/Distance-Trig-Calc-3d
+#   - Create fakeplayer and data entry objects (basically just a more convenient container for bolt-expressions objects)
+#   - Add marker-based normalization for vectors
+#   - Multiply vector by quaternion https://gamedev.stackexchange.com/questions/28395/rotating-vector3-by-a-quaternion
+#   - Output quaternion to storage
+
+
+# A scoreboard-based 3d vector
+#   - Can be used in any contexts that a normal scoreboard object can
+class Vec3:
+    storage_iter = 0
+    score_iter = 0
+
+    def __init__(self, x_ = 0, y_ = 0, z_ = 0):
+        self.x = x_
+        self.y = y_
+        self.z = z_
+
+    @classmethod
+    def storage(self, location_="!generated", storage = "kmath:storage", mode="array", type="float"):
+        out = Vec3()
+        if location_ == "!generated":
+            location_ = f"_vec_{Vec3.storage_iter}"
+            Vec3.storage_iter += 1
+
+        out.location = Data.storage(storage)[location_]
+        out.mode_ = mode
+        out.type_ = type
+
+        out.assign_components()
+        return out
+
+    ## TO-DO: Fix this ##
+    #def __rebind__(out, o):
+    #    # Little extra logic so it doesn't go componentwise if it doesn't need to
+    #    if isinstance(o, Vec3) and o.mode_ == out.mode_:
+    #        out.location = o.location
+    #        out.type_ = o.type_
+    #        out.assign_components()
+#
+    #        return out
+    #    else:
+    #        return super().__rebind__(o)
+
+    @classmethod
+    def score(out, name_="!generated", objective_ = "kmath", split_objective=False):
+        out = Vec3()
+        if name_ == "!generated":
+            name_ = f"#_vec_{Vec3.score_iter}"
+            Vec3.score_iter += 1
+        out.name = name_
+        out.objective = objective_
+
+        # Split_objective is used for the case when the score is stored on an entity and needs to be stored on three different objectives
+        #   - Assumes format objective.x/objective.y/objective.z
+        if split_objective == False:
+            obj = Scoreboard.objective(objective_)
+            out.x = obj[name_ + ".x"]
+            out.y = obj[name_ + ".y"]
+            out.z = obj[name_ + ".z"]
+        else:
+            obj_x = Scoreboard.objective(objective_ + ".x")
+            obj_y = Scoreboard.objective(objective_ + ".y")
+            obj_z = Scoreboard.objective(objective_ + ".z")
+
+            out.x = obj_x[name_]
+            out.y = obj_y[name_]
+            out.z = obj_z[name_]
+
+        return out
+
+    def assign_components(self):
+        if self.mode_ == "array":
+            self.x = self.location[0](type=self.type_)
+            self.y = self.location[1](type=self.type_)
+            self.z = self.location[2](type=self.type_)
+        elif self.mode_ == "xyz":
+            self.x = self.location.x(type=self.type_)
+            self.y = self.location.y(type=self.type_)
+            self.z = self.location.z(type=self.type_)
+
+
+    # Assigment operator; leverages bolt stuff
+    def __rebind__(self, o):
+        self.x = o[0]
+        self.y = o[1]
+        self.z = o[2]
+
+        return self
+
+    # Addition overload
+    def __add__(self, o):
+        RetVal = Vec3()
+        RetVal = (self.x + o[0], self.y + o[1], self.z + o[2])
+        return RetVal
+
+    def __sub__(self, o):
+        RetVal = Vec3()
+        RetVal = (self.x - o[0], self.y - o[1], self.z - o[2])
+        return RetVal
+ 
+    def __mul__(self, o):
+        RetVal = Vec3()
+        if isinstance(o, Vec3):
+            return self.Dot(o)
+        else:
+            RetVal = (self.x * o, self.y * o, self.z * o)
+            return RetVal
+
+    def __truediv__(self, o):
+        RetVal = Vec3()
+        RetVal = (self.x / o, self.y / o, self.z / o)
+        return RetVal
+
+    # Returns dot product
+    def Dot(self, o):
+        return self.x * o.x + self.y * o.y + self.z * o.z
+
+    # Returns self X o
+    def Cross(self, o):
+        RetVal = Vec3()
+        RetVal.x = self.y * o[2] - self.z * o[1]
+        RetVal.y = self.z * o[0] - self.x * o[2]
+        RetVal.z = self.x * o[1] - self.y * o[0]
+        return RetVal
+
+    # Returns magnitude of a vector
+    def Magnitude(self):
+        return sqrt(self.Dot(self))
+
+    # Returns a normalized vector to a given scale factor
+    def Norm(self, scale = 1):
+        return (self * scale) / self.Magnitude()
+
+    def __getitem__(self, key):
+        if key == 0:
+            return self.x
+        elif key == 1:
+            return self.y
+        elif key == 2:
+            return self.z
+        else:
+            raise IndexError("Index of Vec3 must be between 0 and 2")
+
+    def __setitem__(self, key, value):
+        if key == 0:
+            self.x = value
+        elif key == 1:
+            self.y = value
+        elif key == 2:
+            self.z = value
+        else:
+            raise IndexError("Index of Vec3 must be between 0 and 2")
+
+        return self
+
+# Returns a Vec3 Representing the current execution location
+def get_location(scale = 1):
+    function kmath:int/get_location
+    return Vec3.storage("Pos") * scale
+    
+
+# Returns a Vec3 Representing the unit vector that the execution context is facing
+def get_lookvec(scale = 1):
+    execute positioned 0.0 0.0 0.0 positioned ^ ^ ^1 run function kmath:int/get_location
+    return Vec3.storage("Pos") * scale
+
+function kmath:int/get_location:
+    execute summon marker:
+        data modify storage kmath:storage Pos set from entity @s Pos
+        kill @s
+
+
+    
+class Quaternion:
+    quat_iter = 0
+
+    # Creates a scoreboard quaternion object
+    @classmethod
+    def score(cls, name = "!generated", objective="kmath", split_objective=False, scale=1000):
+        out = Quaternion()
+        if name == "!generated":
+            name = f"#_quat_{Quaternion.quat_iter}"
+            Quaternion.quat_iter += 1
+        out.name_ = name
+        out.objective_ = objective
+        out.scale_ = scale
+
+        # Split_objective is used for the case when the score is stored on an entity and needs to be stored on three different objectives
+        #   - Assumes format objective.x/objective.y/objective.z
+        if split_objective == False:
+            obj = Scoreboard.objective(objective)
+            out.w = obj[name + ".w"]
+            out.i = obj[name + ".i"]
+            out.j = obj[name + ".j"]
+            out.k = obj[name + ".k"]
+        else:
+            obj_w = Scoreboard.objective(objective + ".w")
+            obj_i = Scoreboard.objective(objective + ".i")
+            obj_j = Scoreboard.objective(objective + ".j")
+            obj_k = Scoreboard.objective(objective + ".k")
+
+            out.w = obj_w[name]
+            out.i = obj_i[name]
+            out.j = obj_j[name]
+            out.k = obj_k[name]
+
+        return out
+
+    def __add__(self, o):
+        pass
+    
+    def __sub__(self, o):
+        pass
+
+    # Note: Using a preset function here because otherwise the command count would be ridiculous
+    ## TO-DO: Figure out why assignment on output doesn't work
+    def __mul__(self, o):
+        Q1 = Quaternion.score("#q1")
+        Q2 = Quaternion.score("#q2")
+
+        Q1 = self
+        Q2 = o
+
+        function ./multiply_quaternions
+
+        return Quaternion.score("#qO") / self.scale_
+
+    def __rebind__(self, o):
+        self.w = o[0]
+        self.i = o[1]
+        self.j = o[2]
+        self.k = o[3]
+
+        return self
+
+    def __truediv__(self, o):
+        if isinstance(o, Quaternion):
+            return self * o.inverse()
+        else:
+            out = Quaternion()
+            out.w = self.w / o
+            out.i = self.i / o
+            out.j = self.j / o
+            out.k = self.k / o
+            return out
+
+    def Norm(self):
+        pass
+
+    def __getitem__(self, key):
+        if key == 0:
+            return self.w
+        elif key == 1:
+            return self.i
+        elif key == 2:
+            return self.j
+        elif key == 3:
+            return self.k
+        else:
+            raise IndexError("Index of Quaternion must be between 0 and 3")
+
+    def __setitem__(self, key, value):
+        if key == 0:
+            self.w = value
+        elif key == 1:
+            self.i = value
+        elif key == 2:
+            self.j = value
+        elif key == 3:
+            self.k = value
+        else:
+            raise IndexError("Index of Quaternion must be between 0 and 3")
+
+        return self
+
+    def inverse(self):
+        out = Quaternion()
+        out.i = self.i * -1
+        out.j = self.j * -1
+        out.k = self.k * -1
+        out.w = self.w
+        return out
+
+function ./multiply_quaternions:
+    Q1 = Quaternion.score("#q1")
+    Q2 = Quaternion.score("#q2")
+    Q_out = Quaternion.score("#qO")
+
+    Q_out.w = (Q1.w * Q2.w - Q1.i * Q2.i - Q1.j * Q2.j - Q1.k * Q2.k)
+    Q_out.i = (Q1.w * Q2.i + Q1.i * Q2.w + Q1.j * Q2.k - Q1.k * Q2.j)
+    Q_out.j = (Q1.w * Q2.j - Q1.i * Q2.k + Q1.j * Q2.w + Q1.k * Q2.i)
+    Q_out.j = (Q1.w * Q2.k + Q1.i * Q2.j - Q1.j * Q2.i + Q1.k * Q2.w)
+
+
+
+## TO-DO ##
+
+class Matrix:
+    pass
+
+class ScoreVar:
+    pass
+
+class DataVar:
+    pass
+
+# Still not sure if this will be necessary
+class DualQuaternion:
+    pass

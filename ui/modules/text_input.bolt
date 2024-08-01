@@ -1,0 +1,119 @@
+## THINGS TO DO
+#   1. Function that can store and restore the hotbar
+#       - Find a way to store this on the player (playerDB?)
+#   2. Find visual way of making the book and quills not look so ugly
+#   3. Error handling a'nd detection (deleting dummy items if they're dropped or picked up)
+
+import kmc:player_storage as player_storage
+from kmc:display_entity import display
+from kmc.item:custom_item import add_custom_model_data, add_texture_atlas
+from kmc:utils import tick_function
+from nbtlib import Byte
+from contextlib import contextmanager
+
+## TODO: When updating to 1.21, clear the player's cursor
+
+# Add models
+prompt_cmds = []
+for i in range(0, 9):
+    prompt_cmds.append(add_custom_model_data(f"kmc.ui:prompt_{i}", "writable_book"))
+    add_texture_atlas(f"kmc.ui:prompt_{i}")
+
+# API Calls
+
+@contextmanager
+def get_text_input(input_id):
+    id = "kmc.text_input." + input_id
+    function ./api/prompt_input
+    tag @s add id
+
+    append function_tag kmc:hook/text_input/process_input {
+        "values": [
+            f"kmc.ui:int/process_input/{input_id}"
+        ]
+    }
+
+    append function_tag kmc:hook/text_input/cleanup_tags {
+        "values": [
+            f"kmc.ui:int/cleanup_tags/{input_id}"
+        ]
+    }
+        
+    function f"kmc.ui:int/process_input/{input_id}":
+        execute if entity @s[tag=id]:
+            yield
+
+    function f"kmc.ui:int/cleanup_tags/{input_id}":
+        execute if entity @s[tag=id] run tag @s remove id
+
+
+function ./int/save_hotbar:
+    function kmc:api/player_storage/read
+
+    data modify storage kmc:io player.kmc.ui.Hotbar set value []
+    for i in range(0, 9):
+        data modify storage kmc:io player.kmc.ui.Hotbar append from entity @s Inventory[{Slot:Byte(i)}]
+
+    function kmc:api/player_storage/write
+
+function ./int/load_hotbar:
+    function kmc:api/player_storage/read
+    for i in range(0, 9):
+        item replace entity @s f"hotbar.{i}" with minecraft:air
+        execute if data storage kmc:io player.kmc.ui.Hotbar[{Slot:Byte(i)}]:
+            data modify entity display item set from storage kmc:io player.kmc.ui.Hotbar[{Slot:Byte(i)}]
+            item replace entity @s f"hotbar.{i}" from entity display container.0
+    function kmc:api/player_storage/write
+
+function ./api/prompt_input:
+    # If a prompt is already open, send a detectable output and cancel the function
+    execute store result score #prompt_open kmc if entity @s[tag=kmc.ui.prompted]
+    execute if score #prompt_open kmc matches 1 run return 0
+
+    tag @s add kmc.ui.prompted
+    function ./int/save_hotbar
+    for i in range(0, 9):
+        item replace entity @s f"hotbar.{i}" with minecraft:barrier
+        item replace entity @s f"hotbar.{i}" with minecraft:writable_book{CustomModelData:prompt_cmds[i],display:{Name:'{"text":""}'},kmc.ui.text_input:1b}
+
+
+function ./api/close_prompt:
+    tag @s remove kmc.ui.prompted
+    function #kmc:hook/text_input/cleanup_tags
+    function ./int/load_hotbar
+
+
+
+advancement ./text_input/receive_input {
+  "criteria": {
+    "requirement": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": [
+              "minecraft:writable_book",
+              "minecraft:written_book"
+            ],
+            "nbt": "{kmc.ui.text_input:1b}"
+          }
+        ]
+      }
+    }
+  },
+  "rewards": {
+    "function": "kmc.ui:int/input_received"
+  }
+}
+
+
+
+function ./int/input_received:
+    advancement revoke @s only ./text_input/receive_input
+    
+    execute if data entity @s SelectedItem.tag.pages[]:
+        data modify storage kmc:io text_input set from entity @s SelectedItem.tag.pages
+        function #kmc:hook/text_input/process_input
+        function ./api/close_prompt
+        
+        

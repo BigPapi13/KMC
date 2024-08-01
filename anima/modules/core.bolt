@@ -1,0 +1,181 @@
+#> anima:core
+#   Contains the basic setup and utilities needed for anima to function
+
+from kmc:function_tree import generate_function_tree
+from kmc:utils import parse_name
+import kmc:scoreboard as kmc_scoreboard
+from contextlib import contextmanager
+from bolt_expressions import Scoreboard, Data
+import copy
+
+################### API ####################
+
+class Animation:
+    def __init__(self, name_, item, data_ = {}):
+        parsed_name = parse_name(name_)
+        self.name = parsed_name["name"]
+        self.namespace = parsed_name["namespace"]
+
+        self.data = data_
+        self.data.update({"item": {"id":item}})
+
+        # Insert anima tag
+        if "Tags" not in self.data.keys():
+            self.data["Tags"] = []
+        self.data["Tags"].append("anima.root")
+        self.data["Tags"].append(f"anima.{self.namespace}.{self.name}")
+
+        # Insert name data that can be found by macro
+        if "components" not in self.data["item"].keys():
+            self.data["item"].update({"components":{}})
+
+        if "custom_data" not in self.data["item"]["components"].keys():
+            self.data["item"]["components"].update({"custom_data":{}})
+
+        self.data["item"]["components"]["custom_data"].update({"anima.name":f"{self.namespace}/{self.name}"})
+
+        # Set up ticking process
+        function f"anima:hook/{self.namespace}/{self.name}":
+            scoreboard players set #entity_found_flag kmc 0
+            raw f"execute as @e[type=item_display,tag=anima.{self.namespace}.{self.name}] at @s run function anima:hook/{self.namespace}/{self.name}_update"
+            execute if score #entity_found_flag kmc matches 1.. run schedule function f"anima:hook/{self.namespace}/{self.name}" 1t append
+
+        function f"anima:hook/{self.namespace}/{self.name}_update":
+            scoreboard players operation @s anima.timestamp = #global anima.timestamp
+            scoreboard players set #entity_found_flag kmc 1
+            scoreboard players add @s anima.time 1
+
+
+    #> set_update
+    #   - Sets the update function for the animation
+    @contextmanager
+    def set_update(self):
+        append function f"anima:hook/{self.namespace}/{self.name}_update":
+            yield
+
+    #> set_init
+    #   - Sets the function that runs on initialization **NOTE: Context is lost, only run the next tick
+    @contextmanager
+    def set_init(self):
+        append function f"anima:hook/{self.namespace}/{self.name}_update":
+            if score @s anima.time matches 1:
+                yield
+
+    #> set_frame_data
+    #   - Builds the infrastructure for a frame-based animation
+    def set_frame_data(self, frame_list):
+        # Add to load function tag
+        append function_tag minecraft:load {
+            "values": [
+                f"anima:hook/{self.namespace}/load"
+            ]
+        }
+
+        # Load data when the pack is loaded
+        append function f"anima:hook/{self.namespace}/load":
+            function f"anima:hook/{self.namespace}/{self.name}_data"
+
+        function f"anima:hook/{self.namespace}/{self.name}_data":
+            data modify storage anima:generated f"{self.namespace}.{self.name}" set value []
+
+        function_list = []
+        for index, frame in enumerate(frame_list):
+            append function f"anima:hook/{self.namespace}/{self.name}_data":
+                data modify storage anima:generated f"{self.namespace}.{self.name}" append value frame
+            
+            function_list.append(f"data modify entity @s {{}} merge from storage anima:generated {self.namespace}.{self.name}[{index}]")
+
+        # Create function tree
+        append function f"anima:hook/{self.namespace}/{self.name}_update":
+            generate_function_tree(function_list, "@s", "anima.time")
+            execute if score @s anima.time matches len(frame_list) run kill @s
+
+    #> spawn_instance
+    #   - Spawns an instance of the item display animation
+    #   - init_data is nbt-formatted data that the item display is to spawn with
+    def spawn_instance(self, init_data='none'):
+        test = Data.storage("")
+        if type(init_data) == type(test):
+            data modify storage anima:temp spawn set value self.data
+            raw f"data modify storage anima:temp spawn merge from {init_data}"
+            with storage anima:temp:
+                $summon item_display ~ ~ ~ $(spawn)
+        else: 
+            if init_data == 'none':
+                summon item_display ~ ~ ~ self.data
+            else:
+                new_data = copy.deepcopy(self.data)
+                new_data.update(init_data)
+                summon item_display ~ ~ ~ new_data
+
+    #> start
+    #   - Starts the animation
+    #   - This is separated from the spawning to reduce redundant schedule calls
+    def start(self):
+        function f"anima:hook/{self.namespace}/{self.name}"
+
+
+
+################ INTERNALS #################
+
+append function_tag minecraft:tick {
+    "values": [
+        "anima:int/tick"
+    ]
+}
+
+
+#> Tick function
+#   - Entities are checked to see if their respective schedule loop is running - If not, defer to code for beginning schedule loop
+function anima:int/tick:
+    execute as @e[type=item_display,tag=anima.root,predicate=!anima:match_timestamp,limit=1] run function anima:int/begin_execution
+    scoreboard players add #global anima.timestamp 1
+
+append function_tag minecraft:load {
+    "values": [
+        "anima:int/load"
+    ]
+}
+
+function anima:int/load:
+    scoreboard objectives add anima dummy
+    scoreboard objectives add anima.id dummy
+    scoreboard objectives add anima.timestamp dummy
+    scoreboard objectives add anima.time dummy
+
+predicate anima:match_timestamp {
+    "condition": "minecraft:entity_scores",
+    "entity": "this",
+    "scores": {
+        "anima.timestamp": {
+        "min": {
+            "type": "minecraft:score",
+            "target": {
+            "type": "minecraft:fixed",
+            "name": "#global"
+            },
+            "score": "anima.timestamp"
+        },
+        "max": {
+            "type": "minecraft:score",
+            "target": {
+            "type": "minecraft:fixed",
+            "name": "#global"
+            },
+            "score": "anima.timestamp"
+        }
+        }
+    }
+}
+
+#> Begin execution
+#   - Starts the ticking process for a group of animations, and checks for any more tick processes
+function anima:int/begin_execution:
+    # Snag name data for macro
+    data modify storage anima:temp name set from entity @s item.components."minecraft:custom_data"."anima.name"
+
+    with storage anima:temp:
+        $function anima:hook/$(name)
+
+    # Check for more things to initialize
+    execute as @e[type=item_display,tag=anima.root,predicate=!anima:match_timestamp,limit=1] run function anima:int/begin_execution

@@ -1,0 +1,30 @@
+# Function to run commands on player upon joining
+
+from contextlib import contextmanager
+
+@contextmanager
+def player_setup(name):
+    func_name = f"kmc:int/player_setup/{name}"
+    function func_name:
+        yield
+
+    append function_tag kmc:hook/player_setup {
+        "values": [
+            func_name
+        ]
+    }
+
+    function kmc:int/player_setup/hook:
+        function #kmc:hook/player_setup
+
+advancement ./player_setup {
+    "criteria": {
+        "requirement": {
+        "trigger": "minecraft:tick"
+        }
+    },
+    "rewards": {
+        "function": "kmc:int/player_setup/hook"
+    }
+}
+

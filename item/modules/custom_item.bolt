@@ -2,20 +2,24 @@ from contextlib import contextmanager
 from beet.contrib.vanilla import load_vanilla
 from beet import Model
 from kmc import config
+from kmc.item:utils import parse_name
 
 import os
 import json
 
 class Item:
-    def __init__(self, id_, namespace_, item_):
-        self.id = id_
-        self.namespace = namespace_
+    def __init__(self, namespaced_name_, item_, components_={}):
+        parsed_name = parse_name(namespaced_name_)
+        
+        self.name = parsed_name["name"]
+        self.namespace = parsed_name["namespace"]
+        self.namespaced_name = namespaced_name_
         self.item = item_
         self.components = components_
 
     def create_model(self, name, parent="generated"):
-        cmd = retrieve_cmd_cache(name, self.item)
-        add_custom_model_data(cmd, name, self.namespace, self.item)
+        namespaced_name = self.namespace + ':' + name
+        add_custom_model_data(namespaced_name, self.item)
 
 
 # Updates cache for the new entry and returns the appropriate value
@@ -71,12 +75,46 @@ def retrieve_cmd_cache(name, item):
 
     return model_num
 
-def add_custom_model_data(custom_model_data, model_name, namespace, item):
+def add_custom_model_data(model_name, item):
+    parsed_name = parse_name(model_name)
+    name = parsed_name["name"]
+    namespace = parsed_name["namespace"]
+
+    custom_model_data = int(retrieve_cmd_cache(model_name, item))
     base_item_location = f"minecraft:item/{item}"
     ctx.require(load_vanilla(match={model: base_item_location}))
 
     ctx.generate(base_item_location, merge=Model({
         "overrides":[
-            { "predicate": {"custom_model_data": custom_model_data}, "model": f"{namespace}:item/{model_name}"}
+            { "predicate": {"custom_model_data": custom_model_data}, "model": f"{namespace}:{name}"}
         ]
     }))
+
+    return custom_model_data
+
+def add_texture(texture_name, item, parent="minecraft:item/generated"):
+    parsed_name = parse_name(texture_name)
+    name = parsed_name["name"]
+    namespace = parsed_name["namespace"]
+
+    model f"{namespace}:{name}" {
+        "parent": f"{parent}",
+        "textures": {
+            "layer0": f"{namespace}:{name}"
+        }
+    }
+
+    merge atlas minecraft:blocks {
+        "sources": [
+            {"type": "single","resource": f"{namespace}:{name}"}
+        ]
+    }
+
+    return add_custom_model_data(texture_name, item)
+
+def add_texture_atlas(name):
+        merge atlas minecraft:blocks {
+        "sources": [
+            {"type": "single","resource": name}
+        ]
+    }

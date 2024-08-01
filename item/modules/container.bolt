@@ -1,0 +1,86 @@
+# Utilities for interacting with containers
+
+import kmc.item:init as init
+
+# Inserts an item into storage - Must be formatted like a container
+#> Input:
+#   - kmc.item:api container (storage)
+#   - kmc.item:api item_stack (storage)
+#   - #slot_count kmc (score)
+function ./api/insert_item_container:
+    # Step 1: Look for matching entries
+    execute store result score #entries kmc if data storage kmc.item:api container[]
+    data modify storage kmc.item:storage compare2 set from storage kmc.item:api item_stack
+    data remove storage kmc.item:storage compare2.Count
+    data remove storage kmc.item:storage compare2.Slot
+    execute store result score #item_count kmc run data get storage kmc.item:api item_stack.Count
+    execute if score #entries kmc matches 1.. run function kmc.item:int/look_for_match
+
+    # Step 2: Look for open slot
+    execute unless score #slot_count kmc matches 1..128 run scoreboard players set #slot_count kmc 27
+    scoreboard players set #slot kmc 0
+    execute if score #item_count kmc matches 1.. run function kmc.item:int/look_for_empty_slot
+
+# Inserts an item into an item-containing block
+#> Input:
+#   - kmc.item:api item_stack (storage)
+function ./api/insert_item_block:
+    data modify storage kmc.item:api container set from block ~ ~ ~ Items
+    execute unless data block ~ ~ ~ Items run data modify storage kmc.item:api container set value []
+    scoreboard players set #slot_count kmc 27
+    function ./api/insert_item_container
+    data modify block ~ ~ ~ Items set from storage kmc.item:api container
+
+### TO-DO: Make this adapt to different max stack sizes (detectable in 1.20.6)
+function ./int/look_for_match:
+    # Perform item stack comparison
+    data modify storage kmc.item:storage compare1 set from storage kmc.item:api container[0]
+    data remove storage kmc.item:storage compare1.Count
+    data remove storage kmc.item:storage compare1.Slot
+    # Note: Returns 1 if they are different, 0 if they are the same
+    execute store success score #compare kmc run data modify storage kmc.item:storage compare1 set from storage kmc.item:storage compare2
+
+    # If the item stacks are the same, add them together
+    execute if score #compare kmc matches 0:
+        ## REPLACE THIS LINE LATER ##
+        scoreboard players set #max_stack_size kmc 64
+
+        execute store result score #slot_item_count kmc run data get storage kmc.item:api container[0].Count
+        scoreboard players operation #slot_item_count kmc += #item_count kmc
+        scoreboard players set #item_count kmc 0
+        
+
+        # Overflow tracking
+        execute if score #slot_item_count kmc > #max_stack_size kmc:
+            scoreboard players operation #item_count kmc = #slot_item_count kmc
+            scoreboard players operation #item_count kmc -= #max_stack_size kmc
+            scoreboard players operation #slot_item_count kmc = #max_stack_size kmc
+
+        # Write changes to storage
+        execute store result storage kmc.item:api item_stack.Count byte 1 run scoreboard players get #item_count kmc
+        execute store result storage kmc.item:api container[0].Count byte 1 run scoreboard players get #slot_item_count kmc
+
+    # Continue loop
+    data modify storage kmc.item:api container append from storage kmc.item:api container[0]
+    data remove storage kmc.item:api container[0]
+    scoreboard players remove #entries kmc 1
+    execute if score #entries kmc matches 1.. if score #item_count kmc matches 1.. run function kmc.item:int/look_for_match
+
+
+function ./int/look_for_empty_slot:
+    execute store result storage ./storage Slot byte 1 run scoreboard players get #slot kmc
+    with storage ./storage:
+        $execute unless data storage kmc.item:api container[{Slot:$(Slot)b}] run function kmc.item:int/empty_slot_found
+
+
+
+    # Continue loop
+    scoreboard players add #slot kmc 1
+    execute if score #slot kmc < #slot_count kmc unless score #item_count kmc matches 0 run function ./int/look_for_empty_slot
+
+function ./int/empty_slot_found:
+    # Insert item into container
+    data modify storage kmc.item:api item_stack.Slot set from storage kmc.item:storage Slot
+    data modify storage kmc.item:api container append from storage kmc.item:api item_stack
+    data modify storage kmc.item:api item_stack.Count set value 0
+    scoreboard players set #item_count kmc 0

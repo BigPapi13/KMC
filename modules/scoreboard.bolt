@@ -1,0 +1,5 @@
+from kmc:utils import load_function
+
+with load_function("scoreboards"):
+    scoreboard objectives add kmc dummy
+    scoreboard objectives add kmc.const dummy

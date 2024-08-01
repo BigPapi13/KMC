@@ -1,0 +1,25 @@
+# Adds a forceloaded chunk at 0 0 and a function that triggers after reload when the chunk is first loaded
+
+from kmc:utils import load_function
+import kmc:scoreboard as scoreboard
+from contextlib import contextmanager
+
+@contextmanager
+def on_load_origin(name):
+    func_name = f"kmc/int/on_load_origin/{name}"
+    function func_name:
+        yield
+
+    append function_tag kmc:hook/on_load_origin {
+        "values": [
+            func_name
+        ]
+    }
+
+with load_function("forceload"):
+    forceload add 0 0
+    function kmc:int/forceload/wait_for_load
+
+function kmc:int/forceload/wait_for_load:
+    execute store result score #chunk_loaded kmc if loaded 0 0 0 run function #kmc:hook/on_load_origin
+    execute if score #chunk_loaded kmc matches 0 run schedule function kmc:int/forceload/wait_for_load 1t append
