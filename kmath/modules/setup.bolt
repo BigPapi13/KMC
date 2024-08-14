@@ -6,7 +6,17 @@ append function_tag minecraft:load {
 
 function kmath:int/init:
     scoreboard objectives add kmath dummy
+    scoreboard objectives add kmath.x dummy
+    scoreboard objectives add kmath.y dummy
+    scoreboard objectives add kmath.z dummy
+    scoreboard objectives add kmath.i dummy
+    scoreboard objectives add kmath.j dummy
+    scoreboard objectives add kmath.k dummy
+    scoreboard objectives add kmath.w dummy
+
     scoreboard players set #2 kmath 2
     scoreboard players set #141 kmath 141
     scoreboard players set #7775 kmath 7775
     scoreboard players set #100000 kmath 100000
+
+    data modify storage kmath:storage quaternion_to_storage set value [0.0f,0.0f,0.0f,0.0f]

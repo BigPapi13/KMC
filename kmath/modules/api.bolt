@@ -1,4 +1,26 @@
 import ./setup as setup
 
-from kmath:classes import Vec3, get_lookvec, get_location, Quaternion
+from kmath:classes import Vec3, Quaternion, Var
 from kmath:functions import sqrt
+
+from bolt_expressions import Data, Scoreboard
+
+self_rotation = Quaternion.score("@s", split_objective=true)
+
+# Initializes a display entity to the unit quaternion
+def initialize_rotation():
+    global self_rotation
+    self_rotation = (0, 0, 0, 10000)
+
+# Rotates the executing display entity by the input quaternion
+def rotate_self(quaternion):
+    global self_rotation
+    self_rotation = quaternion * self_rotation
+    new_rotation = self_rotation.to_storage()
+    self_rotation_storage = Data.entity("@s").transformation.left_rotation
+    self_rotation_storage = new_rotation
+    data merge entity @s {start_interpolation:0}
+
+# Calculates a rotation on the display entity's scores without applying the rotation
+def multiply_self(quaternion):
+    pass
