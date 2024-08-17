@@ -1,0 +1,193 @@
+#> ScaleVar
+#   - This is a data class used to hold a data value with certain precision
+#   - It can be used for operations on scores and data sources with automatic scale adjustments
+#   - Note: Addition/subraction/assignment operations between values with different scales is currently unsupported
+
+from bolt_expressions import Scoreboard, Data, sources
+
+class ScaleVar:
+    def __init__(self, value=0, scale=1000, multiplier=1):
+        self.value = value
+        self.scale = scale
+        self.multiplier = multiplier
+
+    @classmethod
+    def score(cls, name="!generated", objective="kmath", scale=1000):
+        return ScoreVar.score(name, objective, scale)
+
+    @classmethod
+    def storage(cls, location="!generated", source = "kmath:storage", scale=1000, type="double"):
+        return DataVar.storage(location, source, scale, type)
+
+    @classmethod
+    def entity(cls, location, source = "@s", scale=1000, type="double"):
+        return DataVar.entity(location, source, scale, type)
+
+    @classmethod
+    def block(cls, location, source="~ ~ ~", scale=1000, type="double"):
+        return DataVar.block(location, source, scale, type)
+
+    def __rebind__(self, o):
+        self.value = self.to_expression_multiplied(o)
+        return self
+
+    def __add__(self, o):
+        if hasattr(o, "multiplier") and self.multiplier == o.multiplier:
+            return ScaleVar(self.to_expression(self) + self.to_expression(o), self.scale, self.multiplier)
+
+        return ScaleVar(self.to_expression_multiplied(self) + self.to_expression_multiplied(o), self.scale, 1)
+    
+    def __sub__(self, o):
+        if hasattr(o, "multiplier") and self.multiplier == o.multiplier:
+            return ScaleVar(self.to_expression(self) - self.to_expression(o), self.scale, self.multiplier)
+
+        return ScaleVar(self.to_expression_multiplied(self) - self.to_expression_multiplied(o), self.scale, 1)
+    
+    def __mul__(self, o):
+        if isinstance(o, ScaleVar):
+            return ScaleVar(self.to_expression(self) * self.to_expression(o), self.scale, self.multiplier * o.multiplier / o.scale)
+        else:
+            return ScaleVar(self.to_expression(self), self.scale, self.multiplier * self.to_expression(o) / self.scale)
+
+    def __truediv__(self, o):
+        if isinstance(o, ScaleVar):
+            return ScaleVar((self.to_expression(self) * o.scale) / self.to_expression(o), self.scale, self.multiplier / o.multiplier)
+        else:
+            return ScaleVar(self.to_expression(self), self.scale, self.multiplier * get_scale(o) /  o)
+
+    # Internal helper functions for evaluating the scalevars in expressions
+    def to_expression(self, x):
+        if isinstance(x, DataVar):
+            return x.value * self.scale
+
+        if isinstance(x, ScaleVar):
+            return x.value * (self.scale / x.scale)
+
+        if isinstance(x, sources.Source):
+            return x
+
+        return int(x * self.scale)
+
+    def to_expression_multiplied(self, x):
+        if isinstance(x, DataVar):
+            return x.value * (self.scale * x.multiplier)
+
+        if isinstance(x, ScaleVar):
+            return x.value * (self.scale * x.multiplier / x.scale)
+
+        if isinstance(x, sources.Source):
+            return x
+
+        return int(x * self.scale)
+
+    # Reassigns a value's scale to the input scale value
+    def rescale(self, scale):
+        # Because of the way things are stored, scores are the only version that actually need a value modification
+        if isinstance(self, ScoreVar):
+            new = self * (scale / self.scale)
+            new.scale = scale
+            return new
+        else:
+            self.scale = scale
+            return self
+
+    # Forcefully "squeezes out" the carried multiplier. This can be useful for manually ensuring overflow doesn't occur
+    def force_eval(self):
+        return ScaleVar(self.value * self.multiplier, self.scale, 1)
+
+class SourceVar(ScaleVar):
+    pass
+
+class ScoreVar(SourceVar):
+    score_iter = 0
+
+    @classmethod
+    def score(cls, name, objective, scale):
+        out = ScoreVar(scale=scale)
+        
+        # Generate a new name if one isn't specified
+        if name == "!generated":
+            name = f"#_score_{ScoreVar.score_iter}"
+            ScoreVar.score_iter += 1
+
+        out.name = name
+        out.objective = objective
+        out.scale = scale
+        out.value = Scoreboard.objective(objective)[name]
+        return out
+
+    def log(self):
+        tellraw @a ["",{"text":f"{self.name}: ","color":"gray"},{"score":{"name":f"{self.value.scoreholder}","objective":f"{self.value.objective}"}}]
+        
+
+class DataVar(SourceVar):
+    storage_iter = 0
+
+    @classmethod
+    def storage(cls, location, source, scale, type):
+        out = DataVar(scale=scale)
+        out.set_parameters(scale, type)
+        if isinstance(location, sources.DataSource):
+            out.location = location
+        if str(location) == "!generated":
+            location = f"_stg_{DataVar.storage_iter}"
+            DataVar.storage_iter += 1
+        if not hasattr(out, "location"):
+            out.location = Data.storage(source)[location]
+
+        out.value = out.location(type=out.type)
+
+        out.sourcetype = "storage"
+        return out
+
+    @classmethod
+    def entity(cls, location, source, scale, type):
+        out = DataVar(scale=scale)
+        out.set_parameters(scale, type)
+        if isinstance(location, sources.DataSource):
+            out.location = location
+        if not hasattr(out, "location"):
+            out.location = Data.entity(source)[location]
+
+        out.value = out.location(type=out.type)
+        out.sourcetype = "entity"
+        return out
+
+    @classmethod
+    def block(cls, location, source, scale, type):
+        out = DataVar(scale=scale)
+        out.set_parameters(scale, type)
+        if isinstance(location, sources.DataSource):
+            out.location = location
+        if not hasattr(out, "location"):
+            out.location = Data.block(source)[location]
+        
+        out.value = out.location(type=out.type)
+        out.sourcetype = "block"
+        return out
+
+    def set_parameters(self, scale, type):
+        self.type = type
+        self.scale = scale
+
+    def __rebind__(self, o):
+        if isinstance(o, ScaleVar):
+            self.value = self.to_expression(o) * (o.multiplier / self.scale)
+            return self
+
+        self.value = self.to_expression_multiplied(o) / self.scale
+        return self
+
+    # Overriding mulitplication for some minor optimization stuff
+    def __mul__(self, o):
+        if isinstance(o, ScaleVar):
+            return ScaleVar(self.to_expression(self) * self.to_expression(o), self.scale, self.multiplier * o.multiplier / o.scale)
+        else:
+            return DataVar(self.value, self.scale, self.multiplier * self.to_expression(o) / self.scale)
+
+def get_scale(x):
+    if hasattr(x, "scale"):
+        scale = x.scale
+    else:
+        scale = 1
+    return scale

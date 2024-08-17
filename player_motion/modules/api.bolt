@@ -1,19 +1,22 @@
-from kmath:api import Vec3
+from kmath:api import Vec3, ScaleVar
 from bolt_expressions import Scoreboard, Data
 
+
+
 def launch_looking(strength):
-    arg = Scoreboard.objective("player_motion.api.launch")["$strength"]
+    arg = ScaleVar.score("$strength", "player_motion.api.launch", 10000)
     arg = strength
 
     function player_motion:api/launch_looking
 
 def launch_xyz(vector):
-    obj = Scoreboard.objective("player_motion.api.launch")
-    mx = obj["$x"]
-    my = obj["$y"]
-    mz = obj["$z"]
+    launchvec = Vec3(
+        ScaleVar.score("$x", "player_motion.api.launch", scale=10000),
+        ScaleVar.score("$y", "player_motion.api.launch", scale=10000),
+        ScaleVar.score("$z", "player_motion.api.launch", scale=10000),
+        10000
+    )
 
-    mx = vector[0]
-    my = vector[1]
-    mz = vector[2]
+
+    launchvec = vector
     function player_motion:api/launch_xyz

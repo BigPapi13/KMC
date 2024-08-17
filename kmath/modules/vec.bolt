@@ -1,0 +1,505 @@
+#> Vec3
+
+import ./setup as setup
+from bolt_expressions import Scoreboard, Data, sources, Objective
+from bolt_expressions.sources import ScoreSource
+from ./functions import sqrt
+from kmc:display_entity import display
+from nbtlib import Float, Double
+from contextlib import contextmanager
+from ./scalevar import ScaleVar, ScoreVar, DataVar
+import math
+
+# Useful helper function for vector operations, not part of the API
+def expression_vec(vec, o, x, y, z, scale):
+    if isinstance(o, ScaleVar) or isinstance(vec, SourceVec3):
+        return SourceVec3(x, y, z, scale)
+    else:
+        return Vec3(x, y, z, scale)
+
+
+# A scoreboard-based 3d vector
+#   - Can be used in any contexts that a normal scoreboard object can
+class Vec3:
+    storage_iter = 0
+    score_iter = 0
+
+    def __init__(self, x = 0, y = 0, z = 0, scale = 1000):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.scale = scale
+
+    @classmethod
+    def score(cls, name="!generated", objective = "kmath", scale = 1000, split_objective=False):
+        return ScoreVec3.score(name, objective, scale, split_objective)
+
+    @classmethod
+    def storage(cls, location="!generated", source = "kmath:storage", scale=1000, type="double", mode="array"):
+        return DataVec3.storage(location, source, scale, type, mode)
+
+    @classmethod
+    def entity(cls, location="Pos", source = "@s", scale=1000, type="double", mode="array"):
+        return DataVec3.entity(location, source, scale, type, mode)
+
+    @classmethod
+    def block(cls, location, source="~ ~ ~", scale=1000, type="double", mode="array"):
+        return DataVec3.block(location, source, scale, type, mode)
+
+    # Assigment operator; leverages bolt stuff
+    def __rebind__(self, o):
+        self.x = o[0]
+        self.y = o[1]
+        self.z = o[2]
+
+        return self
+
+    # Addition overload
+    def __add__(self, o):
+        return expression_vec(self, o,
+            self.x + o[0],
+            self.y + o[1],
+            self.z + o[2],
+            self.scale
+        )
+
+    def __sub__(self, o):
+        return expression_vec(self, o, 
+            self.x - o[0],
+            self.y - o[1],
+            self.z - o[2],
+            self.scale
+        )
+ 
+    def __mul__(self, o):
+        if isinstance(o, Vec3):
+            return self.Dot(o)
+        elif isinstance(o, Quaternion):
+            # ROTATION BY QUATERNION
+
+            # Case 1: Quaternion is held in scoreboards
+            if isinstance(o, ScoreQuaternion):
+                vec = Vec3.score("#rvq_v", scale=1000)
+                quat = Quaternion.score("#rvq_q", scale=10000)
+                out = Vec3.score("#rvq_o", scale=1000)
+                
+                vec = self
+                quat = o
+
+                function kmath:int/rotate_vec_quaternion
+                return out
+            # Case 2: Quaternion is just normal values
+            else: 
+                return self.rotate_by_quaternion(o)
+        else:
+            return expression_vec(self, o,
+                self.x * o,
+                self.y * o,
+                self.z * o,
+                self.scale                    
+            )
+
+    def __truediv__(self, o):
+        return expression_vec(self, o,
+            self.x / o,
+            self.y / o,
+            self.z / o,
+            self.scale                    
+        )
+
+    # Returns dot product
+    def Dot(self, o):
+        return (self.x * o.x + self.y * o.y + self.z * o.z)
+
+    # Returns self X o
+    def Cross(self, o):
+        return expression_vec(self, o,
+            self.y * o[2] - self.z * o[1],
+            self.z * o[0] - self.x * o[2],
+            self.x * o[1] - self.y * o[0],
+            self.scale
+        )
+
+    # Returns magnitude of a vector
+    def Magnitude(self):
+        return sqrt(self.Dot(self))
+
+    # Magnitude, but using SuperSword's method (Less chance for overflow with large inputs)
+    def SafeMagnitude(self):
+        distance = Vec3.score("#d", "kmath", self.scale)
+        distance = self
+        function kmath:distance/start
+        out = ScaleVar.score("#d.out", "kmath", scale=self.scale) / 1000
+        return out
+
+    # Returns a normalized vector to a given scale factor
+    def Norm(self):
+        return self / self.Magnitude()
+
+    def __getitem__(self, key):
+        if key == 0:
+            return self.x
+        elif key == 1:
+            return self.y
+        elif key == 2:
+            return self.z
+        else:
+            raise IndexError("Index of Vec3 must be between 0 and 2")
+
+    def __setitem__(self, key, value):
+        if key == 0:
+            self.x = value
+        elif key == 1:
+            self.y = value
+        elif key == 2:
+            self.z = value
+        else:
+            raise IndexError("Index of Vec3 must be between 0 and 2")
+
+        return self
+
+    def rotate_by_quaternion(self, o):
+        u = Vec3(o.i, o.j, o.k, o.scale)
+        uv = u.Cross(self)
+        uuv = u.Cross(uv)
+        s = o.w
+
+        return self + (((uv * s) + uuv) * 2)
+
+    # Changes execution context to the vector
+    #   (when vector is not a score or storage, this is trivial)
+    @contextmanager
+    def position(self):
+        execute positioned self.x self.y self.z:
+            yield
+
+    # Changes the execution context to be positioned relatively by the calling vector
+    @contextmanager
+    def position_relative(self):
+        execute positioned ~self.x ~self.y ~self.z:
+            yield
+
+    # Changes the execution context to be positioned relatively with local coordinates
+    @contextmanager
+    def position_local(self):
+        execute positioned ^self.x ^self.y ^self.z:
+            yield
+
+    # Rotates the execution context as the vector
+    @contextmanager
+    def rotated(self):
+        execute facing ~self.x ~self.y ~self.z:
+            yield 
+
+    @classmethod
+    # Returns a Vec3 Representing the current execution location
+    def get_location(cls, scale = 1000):
+        function kmath:int/get_location
+        return Vec3.storage("Pos", "kmath:storage", scale=scale, type="double")
+    
+    @classmethod
+    # Returns a Vec3 Representing the unit vector that the execution context is facing
+    def get_lookvec(cls, scale = 1000):
+        execute positioned 0.0 0.0 0.0 positioned ^ ^ ^1 run function kmath:int/get_location
+        return Vec3.storage("Pos", "kmath:storage", scale=scale, type="double")
+
+    # Some elements need to be rescaled when put in an expression
+    def to_expression(self, x):
+        if type(x) is list or type(x) is tuple:
+            return (x[0] * self.scale, x[1] * self.scale, x[2] * self.scale)
+
+        if isinstance(x, DataVec3):
+            return x * self.scale
+
+        return x
+
+    # Reassigns a vector's scale to the input scale value
+    def rescale(self, scale):
+        if isinstance(self, SourceVec3):
+            return Vec3(
+                self.x.rescale(scale),
+                self.y.rescale(scale),
+                self.z.rescale(scale),
+                scale
+            )
+        else:
+            # If the components are not sources, the scale factor is not relevant
+            self.scale = scale
+            return self
+        
+
+function kmath:int/get_location:
+    execute summon marker:
+        data modify storage kmath:storage Pos set from entity @s Pos
+        kill @s
+
+
+
+# Vec3 Sub-types
+
+# Basically identical to normal Vec3, just overrides some behaviors whne it's a data source / expression
+class SourceVec3(Vec3):
+    # Positions at the vector
+    @contextmanager
+    def position(self):
+        func_name = ctx.generate.format(~/ + "/positioned_vector_{incr}")
+        macro_input = Vec3.storage("positioned_vector", "kmath:macro", mode="xyz")
+        macro_input = self
+
+        with storage kmath:macro positioned_vector:
+            raw f"$execute positioned $(x) $(y) $(z) run function {func_name}"
+
+        function func_name:
+            yield
+        
+    # Changes the execution context to be positioned relatively by the calling vector
+    @contextmanager
+    def position_relative(self):
+        func_name = ctx.generate.format(~/ + "/positioned_vector_{incr}")
+        macro_input = Vec3.storage("positioned_vector", "kmath:macro", mode="xyz")
+        macro_input = self
+
+        with storage kmath:macro positioned_vector:
+            raw f"$execute positioned ~$(x) ~$(y) ~$(z) run function {func_name}"
+
+        function func_name:
+            yield
+
+    @contextmanager
+    def position_local(self):
+        func_name = ctx.generate.format(~/ + "/positioned_vector_{incr}")
+        macro_input = Vec3.storage("positioned_vector", "kmath:macro", mode="xyz")
+        macro_input = self
+
+        with storage kmath:macro positioned_vector:
+            raw f"$execute positioned ^$(x) ^$(y) ^$(z) run function {func_name}"
+
+        function func_name:
+            yield
+
+    @contextmanager
+    def rotated(self):
+        func_name = ctx.generate.format(~/ + "/rotated_vector_{incr}")
+        macro_input = Vec3.storage("positioned_vector", "kmath:macro", mode="xyz")
+        macro_input = self
+
+        with storage kmath:macro positioned_vector:
+            raw f"$execute facing ~$(x) ~$(y) ~$(z) run function {func_name}"
+
+        function func_name:
+            yield
+
+class ScoreVec3(SourceVec3):
+    @classmethod
+    def score(cls, name, objective, scale, split_objective):
+        out = ScoreVec3()
+        if name == "!generated":
+            name = f"#_vec_{Vec3.score_iter}"
+            Vec3.score_iter += 1
+        out.name = name
+        out.objective = objective
+        out.scale = scale
+
+        # Split_objective is used for the case when the score is stored on an entity and needs to be stored on three different objectives
+        #   - Assumes format objective.x/objective.y/objective.z
+        if split_objective == False:
+            out.x = ScaleVar.score(name + ".x", objective, scale)
+            out.y = ScaleVar.score(name + ".y", objective, scale)
+            out.z = ScaleVar.score(name + ".z", objective, scale)
+        else:
+            out.x = ScaleVar.score(name, objective + ".x", scale)
+            out.y = ScaleVar.score(name, objective + ".y", scale)
+            out.z = ScaleVar.score(name, objective + ".z", scale)
+
+        return out
+
+    def log(self):
+        tellraw @a ["",{"text":f"{self.name}: ","color":"gray"},{"score":{"name":f"{self.x.scoreholder}","objective":f"{self.x.objective}"}},{"text":" "},{"score":{"name":f"{self.y.scoreholder}","objective":f"{self.x.objective}"}},{"text":" "},{"score":{"name":f"{self.z.scoreholder}","objective":f"{self.x.objective}"}}]
+
+class DataVec3(SourceVec3):
+    @classmethod
+    def storage(cls, location, source, scale, type, mode):
+        out = DataVec3()
+        out.set_parameters(location, scale, type, mode)
+        if str(location) == "!generated":
+            location = f"_vec_{Vec3.storage_iter}"
+            Vec3.storage_iter += 1
+        if not hasattr(out, "location"):
+            out.location = Data.storage(source)[location]
+        if out.mode == "array":
+            out.x = ScaleVar.storage(out.location[0], scale=scale, type=type)
+            out.y = ScaleVar.storage(out.location[1], scale=scale, type=type)
+            out.z = ScaleVar.storage(out.location[2], scale=scale, type=type)
+        elif out.mode == "xyz":
+            out.x = ScaleVar.storage(out.location.x, scale=scale, type=type)
+            out.y = ScaleVar.storage(out.location.y, scale=scale, type=type)
+            out.z = ScaleVar.storage(out.location.z, scale=scale, type=type)
+        else:
+            raise ValueError("StorageVec3: mode must be \"array\" or \"xyz\"")
+        out.sourcetype = "storage"
+        return out
+
+    @classmethod
+    def entity(out, location, source, scale, type, mode):
+        out = DataVec3()
+        out.set_parameters(location, scale, type, mode)
+        if not hasattr(out, "location"):
+            out.location = Data.entity(source)[location]
+        if out.mode == "array":
+            out.x = ScaleVar.entity(out.location[0], scale=scale, type=type)
+            out.y = ScaleVar.entity(out.location[1], scale=scale, type=type)
+            out.z = ScaleVar.entity(out.location[2], scale=scale, type=type)
+        elif out.mode == "xyz":
+            out.x = ScaleVar.entity(out.location.x, scale=scale, type=type)
+            out.y = ScaleVar.entity(out.location.y, scale=scale, type=type)
+            out.z = ScaleVar.entity(out.location.z, scale=scale, type=type)
+        else:
+            raise ValueError("StorageVec3: mode must be \"array\" or \"xyz\"")
+        out.sourcetype = "entity"
+        return out    
+
+    @classmethod
+    def block(out, location, source, scale, type, mode):
+        out = DataVec3()
+        out.set_parameters(location, scale, type, mode)
+        if not hasattr(out, "location"):
+            out.location = Data.block(source)[location]
+        if out.mode == "array":
+            out.x = ScaleVar.block(out.location[0], scale=scale, type=type)
+            out.y = ScaleVar.block(out.location[1], scale=scale, type=type)
+            out.z = ScaleVar.block(out.location[2], scale=scale, type=type)
+        elif out.mode == "xyz":
+            out.x = ScaleVar.block(out.location.x, scale=scale, type=type)
+            out.y = ScaleVar.block(out.location.y, scale=scale, type=type)
+            out.z = ScaleVar.block(out.location.z, scale=scale, type=type)
+        else:
+            raise ValueError("StorageVec3: mode must be \"array\" or \"xyz\"")
+        out.sourcetype = "block"
+        return out
+
+    def set_parameters(self, location, scale, type, mode):
+        self.mode = mode
+        self.type = type
+        self.scale = scale
+    
+        if isinstance(location, sources.DataSource):
+            self.location = location
+
+    def __rebind__(self, o):
+        # Little mini-optimization so a pure copy occurs if the arrays are of the same type, scale, and mode
+        if isinstance(o, DataVec3) and o.mode == self.mode and o.type == self.type and o.scale == self.scale:
+            self.location = o.location
+            return self
+        elif isinstance(o, DataVec3) and o.type == self.type and o.scale == self.scale:
+            self.x.value = o.x.value
+            self.y.value = o.y.value
+            self.z.value = o.z.value
+        else:
+            return super().__rebind__(o)
+
+    @contextmanager
+    def position(self):
+        func_name = ctx.generate.format(~/ + "/positioned_vector_{incr}")
+        if self.mode != "xyz":
+            macro_input_temp = Vec3.storage("positioned_vector", "kmath:macro", mode="xyz")
+            macro_input_temp = self
+            macro_input = macro_input_temp
+        else:
+            macro_input = self.location
+
+        with var macro_input:
+            raw f"$execute positioned $(x) $(y) $(z) run function {func_name}"
+
+        function func_name:
+            yield
+
+    @contextmanager
+    def position_relative(self):
+        func_name = ctx.generate.format(~/ + "/positioned_vector_{incr}")
+        if self.mode != "xyz":
+            macro_input_temp = Vec3.storage("positioned_vector", "kmath:macro", mode="xyz")
+            macro_input_temp = self
+            macro_input = macro_input_temp.location
+        else:
+            macro_input = self.location
+
+        with var macro_input:
+            raw f"$execute positioned ~$(x) ~$(y) ~$(z) run function {func_name}"
+
+        function func_name:
+            yield
+
+    @contextmanager
+    def position_local(self):
+        func_name = ctx.generate.format(~/ + "/positioned_vector_{incr}")
+        if self.mode != "xyz":
+            macro_input_temp = Vec3.storage("positioned_vector", "kmath:macro", mode="xyz")
+            macro_input_temp = self
+            macro_input = macro_input_temp
+        else:
+            macro_input = self.location
+
+        with var macro_input:
+            raw f"$execute positioned ^$(x) ^$(y) ^$(z) run function {func_name}"
+
+        function func_name:
+            yield
+
+    def rotated(self):
+        func_name = ctx.generate.format(~/ + "/rotated_vector_{incr}")
+        if self.mode != "xyz":
+            macro_input_temp = Vec3.storage("positioned_vector", "kmath:macro", mode="xyz")
+            macro_input_temp = self
+            macro_input = macro_input_temp
+        else:
+            macro_input = self.location
+
+        with var macro_input:
+            raw f"$execute facing ~$(x) ~$(y) ~$(z) run function {func_name}"
+
+        function func_name:
+            yield
+            
+
+
+    # Resets the data location of the vector
+    def reset(self):
+        if self.mode == "xyz":
+            self.location = {}
+        else:
+            if self.type == "double":
+                self.location = [Double(0.0), Double(0.0), Double(0.0)]
+            if self.type == "float":
+                self.location = [Float(0.0), Float(0.0), Float(0.0)]
+            if self.type == "int":
+                self.location = [0, 0, 0]
+
+
+
+
+
+from ./quaternion import Quaternion, ScoreQuaternion
+function kmath:int/rotate_vec_quaternion:
+    rvec = Vec3.score("#rvq_v")
+    rquat = Quaternion.score("#rvq_q",scale=10000)
+    rout = Vec3.score("#rvq_o")
+
+    u = Vec3.score("#rvq_u", scale=10000)
+    u = Vec3(rquat.i, rquat.j, rquat.k, rquat.scale)
+
+    uv = Vec3.score("#rvq_uv", scale=10000)
+    uuv = Vec3.score("#rvq_uuv", scale=10000)
+    uv = u.Cross(rvec)
+    uuv = u.Cross(uv)
+    s = ScaleVar.score("#rvq_q.w", scale=10000)
+    rout = rvec + (((uv * s) + uuv) * 2)
+
+########## HELPER FUNCTIONS #############
+
+def get_scale(x):
+    if hasattr(x, "scale"):
+        scale = x.scale
+    else:
+        scale = 1
+    return scale
+

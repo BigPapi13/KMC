@@ -1,0 +1,233 @@
+#> Quaternion
+#   Adds quaternions and their operations
+
+from ./scalevar import ScaleVar, ScoreVar, DataVar
+from bolt_expressions import Data, Scoreboard
+from nbtlib import Float, Double, Int, Byte, Short
+from ./functions import sqrt
+from kmc:display_entity import display
+import math
+
+class Quaternion:
+    quat_iter = 0
+
+    def __init__(self, i=1, j=0, k=0, w=0, scale=10000):
+        self.i = i
+        self.j = j
+        self.k = k
+        self.w = w
+        self.scale = scale
+
+    # Creates a scoreboard quaternion object
+    @classmethod
+    def score(cls, name = "!generated", objective="kmath", split_objective=False, scale=10000):
+        return ScoreQuaternion.score(name, objective, split_objective, scale)
+
+    def __add__(self, o):
+        pass
+    
+    def __sub__(self, o):
+        pass
+
+    def __mul__(self, o):
+        if isinstance(self, ScoreQuaternion):       # When multiplying by score quaternion, secondary function is used to keep command count reasonable
+            Q1 = Quaternion.score("#q1")
+            Q2 = Quaternion.score("#q2")
+
+            Q1 = self
+            Q2 = o
+
+            function ./multiply_quaternions
+
+            return Quaternion.score("#qO", scale=self.scale)
+        elif isinstance(o, Quaternion):
+            return self.multiply(o)
+        else:
+            # Scalar multiplication
+            return Quaternion(
+                self.i * o,
+                self.j * o,
+                self.k * o,
+                self.w * o,
+                self.scale
+            )
+        
+
+    def __rebind__(self, o):
+        self.i = o[0]
+        self.j = o[1]
+        self.k = o[2]
+        self.w = o[3]
+
+        return self
+
+    def __truediv__(self, o):
+        if isinstance(o, Quaternion):
+            return self * o.inverse()
+        else:
+            out = Quaternion()
+            out.w = self.w / o
+            out.i = self.i / o
+            out.j = self.j / o
+            out.k = self.k / o
+            out.scale = self.scale
+            return out
+    
+    def Magnitude(self):
+        return sqrt(self.i * self.i + self.j * self.j + self.k * self.k + self.w * self.w)
+
+
+    def Norm(self):
+        return self / self.Magnitude()
+
+    def __getitem__(self, key):
+        if key == 0:
+            return self.i
+        elif key == 1:
+            return self.j
+        elif key == 2:
+            return self.k
+        elif key == 3:
+            return self.w
+        else:
+            raise IndexError("Index of Quaternion must be between 0 and 3")
+
+    def __setitem__(self, key, value):
+        if key == 0:
+            self.i = value
+        elif key == 1:
+            self.j = value
+        elif key == 2:
+            self.k = value
+        elif key == 3:
+            self.w = value
+        else:
+            raise IndexError("Index of Quaternion must be between 0 and 3")
+
+        return self
+
+    def inverse(self):
+        out = Quaternion()
+        out.i = self.i * -1
+        out.j = self.j * -1
+        out.k = self.k * -1
+        out.w = self.w
+        out.scale = self.scale
+        return out
+
+    def to_storage(self, storage=Data.storage("kmath:storage").quaternion_to_storage):
+        i = storage[0](type='float')
+        j = storage[1](type='float')
+        k = storage[2](type='float')
+        r = storage[3](type='float')
+        
+        i = self.i.value / self.scale
+        j = self.j.value / self.scale
+        k = self.k.value / self.scale
+        r = self.w.value / self.scale
+
+        return storage
+
+    # TO-DO: Do some minor optimizations on setting the axis (probably needs type checking)
+    def set_axis_angle(self, axis, angle):
+        if isinstance(axis, DataVec3) or isinstance(axis, ScoreVec3) or isinstance(angle, ScaleVar):
+            # Case 1: Compute at runtime
+            temp = Data.storage("kmath:storage").axis_angle
+            temp = {"axis":[Float(0.0),Float(0.0),Float(0.0)]}
+            temp_axis = Vec3.storage(temp.axis, type="float")
+            temp_axis = axis
+            temp_angle = ScaleVar.storage(temp.angle)
+            temp_angle = angle
+            data modify entity display transformation.left_rotation set from storage kmath:storage axis_angle
+            data modify storage kmath:storage quaternion set from entity display transformation.left_rotation
+
+            out = Data.storage("kmath:storage").quaternion
+            self.i = out[0] * self.scale
+            self.j = out[1] * self.scale
+            self.k = out[2] * self.scale
+            self.w = out[3] * self.scale
+        else:
+            # Case 2: Pre-compute
+            self = Quaternion(
+                axis[0] * math.sin(angle / 2),
+                axis[1] * math.sin(angle / 2),
+                axis[2] * math.sin(angle / 2),
+                math.cos(angle / 2)
+            )
+
+    def log(self):
+        tellraw @a ["",{"text":f"{self.name}: ","color":"gray"},{"score":{"name":f"{self.i.scoreholder}","objective":f"{self.i.objective}"}},{"text":" "},{"score":{"name":f"{self.j.scoreholder}","objective":f"{self.j.objective}"}},{"text":" "},{"score":{"name":f"{self.k.scoreholder}","objective":f"{self.k.objective}"}},{"text":" "},{"score":{"name":f"{self.w.scoreholder}","objective":f"{self.w.objective}"}}]
+
+    # Like the multiplication operator, but never does the function optimization
+    def multiply(self, o):
+        return Quaternion(
+            (self.w * o.i + self.i * o.w + self.j * o.k - self.k * o.j),
+            (self.w * o.j - self.i * o.k + self.j * o.w + self.k * o.i),
+            (self.w * o.k + self.i * o.j - self.j * o.i + self.k * o.w),
+            (self.w * o.w - self.i * o.i - self.j * o.j - self.k * o.k),
+            self.scale
+        )
+
+    ### CLASS FUNCTIONS/VARIABLES ###
+
+    # Current executing entity's rotation (need to assign after class definition because it relies on class method)
+    self_rotation = 0
+
+    # Initializes a display entity to a starting value
+    #   Defaults to unit quaternion if unspecified
+    @classmethod
+    def initialize_rotation(cls, value = (0, 0, 0, 1)):
+        Quaternion.self_rotation = value
+
+    # Rotates the executing display entity by the input quaternion
+    @classmethod
+    def rotate_self(cls, quaternion):
+        Quaternion.self_rotation = quaternion * Quaternion.self_rotation
+        new_rotation = Quaternion.self_rotation.to_storage()
+        self_rotation_storage = Data.entity("@s").transformation.left_rotation
+        self_rotation_storage = new_rotation
+        data merge entity @s {start_interpolation:0}
+
+    # Calculates a rotation on the display entity's scores without applying the rotation
+    @classmethod
+    def multiply_self(cls, quaternion):
+        Quaternion.self_rotation = quaternion * Quaternion.self_rotation
+
+
+
+class ScoreQuaternion(Quaternion):
+    @classmethod
+    def score(cls, name, objective, split_objective, scale):
+        out = Quaternion()
+        if name == "!generated":
+            name = f"#_quat_{Quaternion.quat_iter}"
+            Quaternion.quat_iter += 1
+        out.name = name
+        out.objective = objective
+        out.scale = scale
+
+        # Split_objective is used for the case when the score is stored on an entity and needs to be stored on three different objectives
+        #   - Assumes format objective.x/objective.y/objective.z
+        if split_objective == False:
+            out.i = ScaleVar.score(name + ".i", objective, scale)
+            out.j = ScaleVar.score(name + ".j", objective, scale)
+            out.k = ScaleVar.score(name + ".k", objective, scale)
+            out.w = ScaleVar.score(name + ".w", objective, scale)
+        else:
+            out.i = ScaleVar.score(name, objective + ".i", scale)
+            out.j = ScaleVar.score(name, objective + ".j", scale)
+            out.k = ScaleVar.score(name, objective + ".k", scale)
+            out.w = ScaleVar.score(name, objective + ".w", scale)
+        return out
+
+
+function ./multiply_quaternions:
+    Q1 = Quaternion.score("#q1")
+    Q2 = Quaternion.score("#q2")
+    Q_out = Quaternion.score("#qO")
+
+    Q_out = Q1.multiply(Q2)
+
+Quaternion.self_rotation = Quaternion.score("@s", split_objective=true)
+
+from ./vec import Vec3, DataVec3, ScoreVec3

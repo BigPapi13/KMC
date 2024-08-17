@@ -6,6 +6,7 @@ def beet_default(ctx: Context):
         load(
             data_pack={
                 "data/kmath/modules": "@kmc.kmath/modules",
+                "data/kmath/function": "@kmc.kmath/function"
             },
         )
     )

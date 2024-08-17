@@ -11,8 +11,6 @@ def generate_function_tree(command_list, player, objective):
 
 def generate_branch(min, max, command_list, player, objective):
     score = Scoreboard(objective)
-
-    print(min, max)
     if min == max:
         command = command_list[min]
         raw f"{command}"

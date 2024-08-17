@@ -1,16 +1,21 @@
 import ./setup as setup
 from bolt_expressions import Scoreboard, Data
+from ./scalevar import ScaleVar
+import math
 
 # Credit: Triton360 https://github.com/Triton365/fast_integer_sqrt/blob/main/functions/isqrt_noreturn.mcfunction
 #   - Returns the square root of the input score as a bolt_expr scoreboard
 #   - This is basically just taking Triton's code and wrapping it in a convenient bolt function
 def sqrt(x):
-    sqrt_in = Scoreboard.objective("kmath")["#x"]
-    sqrt_out = Scoreboard.objective("kmath")["#y"]
-    
-    sqrt_in = x
-    function ./sqrt
-    return sqrt_out
+    if isinstance(x, ScaleVar):
+        sqrt_in = ScaleVar.score("#x", "kmath", x.scale)
+        sqrt_out = ScaleVar.score("#y", "kmath", x.scale)
+
+        sqrt_in = x * x.scale
+        function ./sqrt
+        return sqrt_out
+    else:
+        return math.sqrt(x)
 
 # Function definition from Triton360
 function ./sqrt:
